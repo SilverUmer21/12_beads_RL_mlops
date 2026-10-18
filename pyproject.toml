@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "barahai"
+version = "0.1.0"
+description = "Barah Goti (12 Beads): rules engine, bots and a pygame client"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+game = ["pygame-ce>=2.5", "numpy>=1.26"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+barahai = "barahai.game.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
