@@ -7,6 +7,9 @@ in code: no image or audio files.
 
 ![Barah Goti mid-game: a chain capture in progress](docs/screenshot.png)
 
+The RL agent and MLOps pipeline are being built next: see the
+[project plan](docs/PROJECT_PLAN.md) for the research, decisions and roadmap.
+
 This folder replaces the old C++/SFML version in [`SilverUmer21/twelve_beads`](https://github.com/SilverUmer21/twelve_beads)
 (see [what was wrong with it](#autopsy-of-the-legacy-c-version)).
 
