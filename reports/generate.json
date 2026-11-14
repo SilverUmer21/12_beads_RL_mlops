@@ -1,0 +1,10 @@
+{
+  "games": 10000,
+  "actions": 583601,
+  "expert_actions": 521476,
+  "avg_turns": 55.77,
+  "p0_win_rate": 0.1539,
+  "p1_win_rate": 0.2653,
+  "draw_rate": 0.5808,
+  "seconds": 366.0
+}

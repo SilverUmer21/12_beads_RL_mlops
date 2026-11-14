@@ -6,7 +6,8 @@ from .greedy import GreedyAgent
 
 
 def make_agent(spec: str, seed: int | None = 0) -> Agent:
-    """Build an agent from a short spec: ``random``, ``greedy``, ``alphabeta-d4``, ``alphabeta-t1.5``."""
+    """Build an agent from a short spec: ``random``, ``greedy``, ``alphabeta-d4``, ``alphabeta-t1.5``,
+    ``onnx:models/policy.onnx``."""
     if spec == "random":
         return RandomAgent(seed)
     if spec == "greedy":
@@ -15,6 +16,10 @@ def make_agent(spec: str, seed: int | None = 0) -> Agent:
         return AlphaBetaAgent(depth=int(spec.removeprefix("alphabeta-d")), seed=seed)
     if spec.startswith("alphabeta-t"):
         return AlphaBetaAgent(depth=64, time_limit=float(spec.removeprefix("alphabeta-t")), seed=seed)
+    if spec.startswith("onnx:"):  # a trained policy, e.g. onnx:models/policy.onnx (needs the rl extra)
+        from ..rl.policy import OnnxAgent
+
+        return OnnxAgent(spec.removeprefix("onnx:"), name="neural")
     raise ValueError(f"unknown agent spec {spec!r}")
 
 

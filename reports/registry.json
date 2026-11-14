@@ -1,0 +1,9 @@
+{
+  "model_name": "barahai-policy",
+  "version": "1",
+  "alias": "champion",
+  "gate_score": 1.2492,
+  "previous_champion": null,
+  "previous_champion_score": null,
+  "run_id": "26722338c57c4807b734cd6676e2b564"
+}

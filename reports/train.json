@@ -1,0 +1,11 @@
+{
+  "timesteps": 3002368,
+  "seconds": 1279.4,
+  "steps_per_second": 2346.7,
+  "mlflow_run_id": "26722338c57c4807b734cd6676e2b564",
+  "final_rollout_win_alphabeta-d2": 0.42,
+  "final_rollout_win_random": 0.992,
+  "final_rollout_win_self": 0.046,
+  "final_rollout_win_alphabeta-d1": 0.85,
+  "final_rollout_win_greedy": 0.712
+}

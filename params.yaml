@@ -1,0 +1,66 @@
+# All pipeline settings. `dvc repro` reruns only the stages whose settings changed.
+# Write small numbers as decimals (0.0003), not 3e-4: YAML reads 3e-4 as a string.
+
+seed: 42
+
+generate:            # raw dataset: expert games between alpha-beta searchers
+  games: 10000
+  depth: 3           # search depth in turns
+  opening_plies: [2, 8]   # random moves at the start of each game (for variety)
+  epsilon: 0.03      # share of later moves played at random (not used as labels)
+  workers: 8
+
+preprocess:          # processed dataset: encoded positions, split by game
+  val_fraction: 0.1
+
+puzzles:             # puzzle suite: positions with one clearly best move
+  candidates: 6000
+  count: 300
+  depth: 4
+  margin: 150        # best move must beat the second best by 1.5 beads
+  workers: 8
+
+model:
+  net_arch: [256, 256]
+
+pretrain:            # behaviour cloning on the expert moves
+  epochs: 12
+  batch_size: 1024
+  learning_rate: 0.001
+  value_coef: 0.5
+  threads: 8
+
+train:               # Maskable PPO
+  init: pretrained   # pretrained | scratch
+  total_timesteps: 3000000
+  vec_env: subproc   # subproc (one process per env) | dummy (all in one process)
+  n_envs: 16         # measured: 16 subproc envs 2370 steps/s, 8 subproc 1954, 8 dummy 1698
+  threads: 4
+  n_steps: 256       # x16 envs = 4096 steps per update
+  batch_size: 1024
+  n_epochs: 5
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.01
+  clip_range: 0.2
+  draw_reward: -0.1
+  capture_reward: 0.02
+  opening_plies: [0, 6]
+  snapshot_every: 250000
+  opponents:
+    random: 0.1
+    greedy: 0.3
+    alphabeta-d1: 0.2
+    alphabeta-d2: 0.2
+    self: 0.2
+
+evaluate:
+  games: 100         # per opponent, half as each colour
+  opening_plies: [2, 6]
+  opponents: [random, greedy, alphabeta-d2, alphabeta-d3]
+  workers: 8
+
+register:
+  model_name: barahai-policy
+  gate_opponent: alphabeta-d2

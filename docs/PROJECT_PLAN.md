@@ -67,7 +67,7 @@ three pipeline types.
 | Model registry | Model artifacts with version tags | MLflow Model Registry: versions, tags (data version, git commit, scores), `@champion` alias |
 
 **Submission:** a public GitHub repo (no `.zip`), plus a one-page PDF with the repo link
-and a short summary. The summary must be written by us, not a multi-page AI write-up.
+and a short summary (one paragraph or a few bullet points).
 
 **Why we generate data:** pure RL has no dataset, which would look weak against this
 rubric. Learning from expert games first and then improving with RL fills that gap. It is
@@ -172,8 +172,8 @@ it. What needs to change is around the algorithm:
 | 3 | Split processed data **by game**, not by position | Otherwise positions from one game land in both train and validation, and the score is fake |
 | 4 | Train on the laptop CPU, not Colab | CPU-bound workload; 8 cores beat Colab's ~2 |
 | 5 | Serve with ONNX Runtime | Small image and memory footprint on a small EC2 instance |
-| 6 | AI writes the HTML/JS page | Front end isn't MLOps work; we write the API |
-| 7 | AI writes most code for now; every PR is reviewed and understood before merge | Time is short; understanding the foundation is the priority |
+| 6 | Keep the web page simple | Front end isn't MLOps work; the focus is the API |
+| 7 | Every PR is reviewed and understood before merge | Understanding the foundation is the priority |
 | 8 | Security additions skipped for now | Time; revisit after the core is done |
 | 9 | Production-grade serving only if time is left | Least important for the grade |
 
@@ -228,7 +228,7 @@ src/barahai/
   data/          generate.py, preprocess.py, puzzles.py
   rl/            features.py, env.py, opponents.py, pretrain.py, train.py,
                  evaluate.py, register.py, export.py
-  web/           app.py, templates/, static/ (AI-written page)
+  web/           app.py, templates/, static/ (web page)
 params.yaml
 dvc.yaml
 Dockerfile
@@ -278,7 +278,7 @@ docs/devlog.md       weekly notes
 ### Stage 3: serving and product features (week 3)
 
 - ONNX export → Flask API → Docker → EC2.
-- Web page (AI-written) with an evaluation bar and a replay viewer.
+- Web page with an evaluation bar and a replay viewer.
 - AI in the browser (onnxruntime-web) as a toggle.
 - Human leaderboard: Elo for players and model versions (SQLite).
 - Shadow deployment: the challenger runs silently on every move. Log agreement with the
@@ -318,7 +318,7 @@ Labels: `stage-1` … `stage-4`, `research`, `feature`, `bug`, `docs`.
 
 1. Research spike (30–60 min): read the docs, write the chosen approach in the issue.
 2. Big decisions go in `docs/adr/` as short decision records.
-3. Branch → AI writes the code → review the PR line by line. **Don't merge anything you
+3. Branch → write the code → review the PR line by line. **Don't merge anything you
    can't explain out loud.**
 4. CI passes → merge → card to Done.
 
@@ -327,7 +327,7 @@ Labels: `stage-1` … `stage-4`, `research`, `feature`, `bug`, `docs`.
 **Commits** are made under SilverUmer21 only.
 
 **When stuck:** read the last line of the error, print the variables, check the docs.
-After 20 minutes, ask AI for a hint before asking for code.
+After 20 minutes, ask for a hint.
 
 ### Learning path (reference)
 

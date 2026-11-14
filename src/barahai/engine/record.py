@@ -81,7 +81,7 @@ class GameRecord:
 def group_turns(states: list[GameState], actions: list[int]) -> list[Turn]:
     """Group atomic actions into turns. ``states[i]`` is the state before ``actions[i]``."""
     turns: list[Turn] = []
-    for state, action in zip(states, actions):
+    for state, action in zip(states, actions, strict=False):
         if not turns or state.chain < 0:
             turns.append(Turn(state.turn))
         turns[-1].moves.append(state.describe(action))
