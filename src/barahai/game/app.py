@@ -578,7 +578,7 @@ class App:
         pulse = 0.5 + 0.5 * math.sin(now * 5)
         victims = set()
         if self.selected is not None and self.human_can_act():
-            for dst, a in self.targets(self.selected).items():
+            for _dst, a in self.targets(self.selected).items():
                 mv = s.describe(a)
                 if mv.captured is not None:
                     victims.add(mv.captured)
@@ -665,7 +665,7 @@ class App:
             layer = pygame.Surface((self.geo.size, self.geo.size), pygame.SRCALPHA)
             color = art.PLAYER_ACCENT[turn.player]
             width = max(3, int(self.r * 0.16))
-            for a, b in zip(pts, pts[1:]):
+            for a, b in zip(pts, pts[1:], strict=False):
                 art.thick_line(layer, (*color, 120), a, b, width)
             pygame.draw.circle(layer, (*color, 150), pts[0], self.r * 0.42, max(2, width // 2))
             self._trail_layer = layer

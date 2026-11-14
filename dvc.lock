@@ -1,0 +1,269 @@
+schema: '2.0'
+stages:
+  generate:
+    cmd: python -m barahai.data.generate
+    deps:
+    - path: src/barahai/agents
+      hash: md5
+      md5: 0430056aab0c21605fb6ea998a56ed29.dir
+      size: 11849
+      nfiles: 4
+    - path: src/barahai/data/generate.py
+      hash: md5
+      md5: 34a1866de74302c425ab6af760a40634
+      size: 3221
+    - path: src/barahai/engine
+      hash: md5
+      md5: 704432278349efdc25de8d916f45f227.dir
+      size: 24327
+      nfiles: 5
+    params:
+      params.yaml:
+        generate:
+          games: 10000
+          depth: 3
+          opening_plies:
+          - 2
+          - 8
+          epsilon: 0.03
+          workers: 8
+        seed: 42
+    outs:
+    - path: data/raw/games.jsonl
+      hash: md5
+      md5: 40f302d29d50d986a1d9831a0be1fecf
+      size: 4033984
+    - path: reports/generate.json
+      hash: md5
+      md5: c90de92d3d9cef349de729f7f9f8b44b
+      size: 193
+  preprocess:
+    cmd: python -m barahai.data.preprocess
+    deps:
+    - path: data/raw/games.jsonl
+      hash: md5
+      md5: 40f302d29d50d986a1d9831a0be1fecf
+      size: 4033984
+    - path: src/barahai/data/preprocess.py
+      hash: md5
+      md5: c902855c233b659137ca1902ad60d920
+      size: 3406
+    - path: src/barahai/rl/features.py
+      hash: md5
+      md5: 202c6c83301b5b8a6ff73a645d5f1580
+      size: 3394
+    params:
+      params.yaml:
+        preprocess:
+          val_fraction: 0.1
+        seed: 42
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: fc8be2924dd9dfa2a4b2d5b81856fe2c.dir
+      size: 11885418
+      nfiles: 2
+    - path: reports/preprocess.json
+      hash: md5
+      md5: 20dc0d4fc8a0383810cbd1791691b69e
+      size: 197
+  puzzles:
+    cmd: python -m barahai.data.puzzles
+    deps:
+    - path: data/raw/games.jsonl
+      hash: md5
+      md5: 40f302d29d50d986a1d9831a0be1fecf
+      size: 4033984
+    - path: src/barahai/data/puzzles.py
+      hash: md5
+      md5: 111b0ea49e6457237197e1d26084428d
+      size: 3547
+    params:
+      params.yaml:
+        preprocess.val_fraction: 0.1
+        puzzles:
+          candidates: 6000
+          count: 300
+          depth: 4
+          margin: 150
+          workers: 8
+        seed: 42
+    outs:
+    - path: data/puzzles.jsonl
+      hash: md5
+      md5: a39fa4b0ea5d3db5b979bb40aa832a22
+      size: 61802
+    - path: reports/puzzles.json
+      hash: md5
+      md5: 26b00b7fa8bf4c3526dd4eef91b25cce
+      size: 118
+  pretrain:
+    cmd: python -m barahai.rl.pretrain
+    deps:
+    - path: data/processed
+      hash: md5
+      md5: fc8be2924dd9dfa2a4b2d5b81856fe2c.dir
+      size: 11885418
+      nfiles: 2
+    - path: src/barahai/rl/policy.py
+      hash: md5
+      md5: 37c296d2c246ad6619ce05558020b707
+      size: 4019
+    - path: src/barahai/rl/pretrain.py
+      hash: md5
+      md5: 178dee80206be9546328d05259dcec62
+      size: 4983
+    params:
+      params.yaml:
+        model:
+          net_arch:
+          - 256
+          - 256
+        pretrain:
+          epochs: 12
+          batch_size: 1024
+          learning_rate: 0.001
+          value_coef: 0.5
+          threads: 8
+        seed: 42
+    outs:
+    - path: models/pretrained.pt
+      hash: md5
+      md5: 1d9b263ca45c6c0ed4337023cd37a48a
+      size: 957813
+    - path: reports/pretrain.json
+      hash: md5
+      md5: ec9faef4104dca4af6c3547d8af64daa
+      size: 186
+  train:
+    cmd: python -m barahai.rl.train
+    deps:
+    - path: models/pretrained.pt
+      hash: md5
+      md5: 1d9b263ca45c6c0ed4337023cd37a48a
+      size: 957813
+    - path: src/barahai/rl/env.py
+      hash: md5
+      md5: 142fbbba41848efddffc28a3fd473c75
+      size: 5614
+    - path: src/barahai/rl/features.py
+      hash: md5
+      md5: 202c6c83301b5b8a6ff73a645d5f1580
+      size: 3394
+    - path: src/barahai/rl/policy.py
+      hash: md5
+      md5: 37c296d2c246ad6619ce05558020b707
+      size: 4019
+    - path: src/barahai/rl/train.py
+      hash: md5
+      md5: 8ddbfacdc58d0e8873f4923cc3096313
+      size: 6523
+    params:
+      params.yaml:
+        model:
+          net_arch:
+          - 256
+          - 256
+        seed: 42
+        train:
+          init: pretrained
+          total_timesteps: 3000000
+          vec_env: subproc
+          n_envs: 16
+          threads: 4
+          n_steps: 256
+          batch_size: 1024
+          n_epochs: 5
+          learning_rate: 0.0001
+          gamma: 0.99
+          gae_lambda: 0.95
+          ent_coef: 0.01
+          clip_range: 0.2
+          draw_reward: -0.1
+          capture_reward: 0.02
+          opening_plies:
+          - 0
+          - 6
+          snapshot_every: 250000
+          opponents:
+            random: 0.1
+            greedy: 0.3
+            alphabeta-d1: 0.2
+            alphabeta-d2: 0.2
+            self: 0.2
+    outs:
+    - path: models/policy.onnx
+      hash: md5
+      md5: 4ff017d30a805293ea95ffe2baa969bf
+      size: 580305
+    - path: models/policy.pt
+      hash: md5
+      md5: 6d636ffc09a89f182c0058b8d4bd95d0
+      size: 957869
+    - path: models/policy.zip
+      hash: md5
+      md5: adbd3273b01ebd425ddd18f88540218b
+      size: 2904424
+    - path: reports/train.json
+      hash: md5
+      md5: 8a95621163e25c4f53cd8a8ecc4a46b1
+      size: 335
+  evaluate:
+    cmd: python -m barahai.rl.evaluate
+    deps:
+    - path: data/puzzles.jsonl
+      hash: md5
+      md5: a39fa4b0ea5d3db5b979bb40aa832a22
+      size: 61802
+    - path: models/policy.onnx
+      hash: md5
+      md5: 4ff017d30a805293ea95ffe2baa969bf
+      size: 580305
+    - path: src/barahai/rl/evaluate.py
+      hash: md5
+      md5: 7378eccdd5242edc58c163be839585c7
+      size: 3890
+    params:
+      params.yaml:
+        evaluate:
+          games: 100
+          opening_plies:
+          - 2
+          - 6
+          opponents:
+          - random
+          - greedy
+          - alphabeta-d2
+          - alphabeta-d3
+          workers: 8
+        seed: 42
+    outs:
+    - path: reports/eval.json
+      hash: md5
+      md5: 0cde29e0710134eef023059c54b4f7b6
+      size: 661
+  register:
+    cmd: python -m barahai.rl.register
+    deps:
+    - path: models/policy.onnx
+      hash: md5
+      md5: 4ff017d30a805293ea95ffe2baa969bf
+      size: 580305
+    - path: reports/eval.json
+      hash: md5
+      md5: 0cde29e0710134eef023059c54b4f7b6
+      size: 661
+    - path: src/barahai/rl/register.py
+      hash: md5
+      md5: ad57923481a62682f7c84eab6f804ca0
+      size: 3404
+    params:
+      params.yaml:
+        register:
+          model_name: barahai-policy
+          gate_opponent: alphabeta-d2
+    outs:
+    - path: reports/registry.json
+      hash: md5
+      md5: e279a01c8ef30718bca0861f3fd897c2
+      size: 221

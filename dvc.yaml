@@ -1,0 +1,106 @@
+stages:
+  generate:
+    cmd: python -m barahai.data.generate
+    deps:
+      - src/barahai/data/generate.py
+      - src/barahai/engine
+      - src/barahai/agents
+    params:
+      - seed
+      - generate
+    outs:
+      - data/raw/games.jsonl
+    metrics:
+      - reports/generate.json:
+          cache: false
+
+  preprocess:
+    cmd: python -m barahai.data.preprocess
+    deps:
+      - src/barahai/data/preprocess.py
+      - src/barahai/rl/features.py
+      - data/raw/games.jsonl
+    params:
+      - seed
+      - preprocess
+    outs:
+      - data/processed
+    metrics:
+      - reports/preprocess.json:
+          cache: false
+
+  puzzles:
+    cmd: python -m barahai.data.puzzles
+    deps:
+      - src/barahai/data/puzzles.py
+      - data/raw/games.jsonl
+    params:
+      - seed
+      - preprocess.val_fraction
+      - puzzles
+    outs:
+      - data/puzzles.jsonl
+    metrics:
+      - reports/puzzles.json:
+          cache: false
+
+  pretrain:
+    cmd: python -m barahai.rl.pretrain
+    deps:
+      - src/barahai/rl/pretrain.py
+      - src/barahai/rl/policy.py
+      - data/processed
+    params:
+      - seed
+      - model
+      - pretrain
+    outs:
+      - models/pretrained.pt
+    metrics:
+      - reports/pretrain.json:
+          cache: false
+
+  train:
+    cmd: python -m barahai.rl.train
+    deps:
+      - src/barahai/rl/train.py
+      - src/barahai/rl/env.py
+      - src/barahai/rl/policy.py
+      - src/barahai/rl/features.py
+      - models/pretrained.pt
+    params:
+      - seed
+      - model
+      - train
+    outs:
+      - models/policy.zip
+      - models/policy.pt
+      - models/policy.onnx
+    metrics:
+      - reports/train.json:
+          cache: false
+
+  evaluate:
+    cmd: python -m barahai.rl.evaluate
+    deps:
+      - src/barahai/rl/evaluate.py
+      - models/policy.onnx
+      - data/puzzles.jsonl
+    params:
+      - seed
+      - evaluate
+    metrics:
+      - reports/eval.json:
+          cache: false
+
+  register:
+    cmd: python -m barahai.rl.register
+    deps:
+      - src/barahai/rl/register.py
+      - models/policy.onnx
+      - reports/eval.json
+    params:
+      - register
+    outs:
+      - reports/registry.json:
+          cache: false

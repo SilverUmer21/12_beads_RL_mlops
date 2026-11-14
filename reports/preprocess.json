@@ -1,0 +1,9 @@
+{
+  "train_games": 9000,
+  "val_games": 1000,
+  "train_positions": 353320,
+  "val_positions": 38828,
+  "avg_legal_actions": 11.1,
+  "value_win_share": 0.1663,
+  "value_draw_share": 0.6804
+}

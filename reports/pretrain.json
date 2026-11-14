@@ -1,0 +1,8 @@
+{
+  "best_epoch": 12,
+  "val_accuracy": 0.7817,
+  "val_policy_loss": 0.6261,
+  "val_value_loss": 0.1733,
+  "seconds": 40.8,
+  "mlflow_run_id": "1ea2f27c52c942b9b330c6a77906b59c"
+}

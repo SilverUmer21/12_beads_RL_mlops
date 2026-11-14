@@ -14,7 +14,7 @@ class Agent(ABC):
     @abstractmethod
     def act(self, state: GameState) -> int: ...
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: B027 (optional hook, not abstract)
         """Called at the start of each game."""
 
 
@@ -25,7 +25,7 @@ class RandomAgent(Agent):
         self._seed = seed
         self.rng = random.Random(seed)
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: B027 (optional hook, not abstract)
         self.rng = random.Random(self._seed)
 
     def act(self, state: GameState) -> int:

@@ -20,7 +20,7 @@ def _t(seconds: float) -> np.ndarray:
 def _partials(freqs, decays, amps, seconds: float) -> np.ndarray:
     t = _t(seconds)
     out = np.zeros_like(t)
-    for f, d, a in zip(freqs, decays, amps):
+    for f, d, a in zip(freqs, decays, amps, strict=False):
         out += a * np.sin(2 * np.pi * f * t) * np.exp(-t / d)
     return out
 

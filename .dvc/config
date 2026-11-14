@@ -1,0 +1,6 @@
+[core]
+    analytics = false
+    remote = storage
+['remote "storage"']
+    url = s3://barahai-dvc-silverumer21/dvcstore
+    region = ap-south-1

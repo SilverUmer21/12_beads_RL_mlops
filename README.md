@@ -7,7 +7,9 @@ in code: no image or audio files.
 
 ![Barah Goti mid-game: a chain capture in progress](docs/screenshot.png)
 
-The RL agent and MLOps pipeline are being built next: see the
+It also has a reinforcement learning agent with a full MLOps pipeline: versioned datasets
+(DVC), a repeatable training pipeline, experiment tracking and a model registry (MLflow).
+See [Phase 1: the MLOps pipeline](#phase-1-the-mlops-pipeline) below and the
 [project plan](docs/PROJECT_PLAN.md) for the research, decisions and roadmap.
 
 This folder replaces the old C++/SFML version in [`SilverUmer21/twelve_beads`](https://github.com/SilverUmer21/twelve_beads)
@@ -18,8 +20,12 @@ barahai/
 ├── src/barahai/
 │   ├── engine/     rules engine: pure Python, zero dependencies
 │   ├── agents/     Random, Greedy (rule-based), Alpha-beta search
-│   └── game/       pygame-ce client: art, sound, app, search worker
-├── tests/          39 tests incl. differential tests against a naive engine
+│   ├── game/       pygame-ce client: art, sound, app, search worker
+│   ├── data/       pipeline stages: generate, preprocess, puzzles
+│   └── rl/         features, Gymnasium env, policy, pretrain, train, evaluate, register
+├── params.yaml     every pipeline setting
+├── dvc.yaml        the pipeline: 7 stages, reproducible with `dvc repro`
+├── tests/          49 tests incl. differential tests against a naive engine
 └── scripts/arena.py   bot-vs-bot tournaments and an engine speed check
 ```
 
@@ -37,6 +43,89 @@ python -m venv .venv
 
 Run the tests with `.venv\Scripts\python -m pytest`, and bot tournaments with
 `.venv\Scripts\python scripts\arena.py random greedy alphabeta-d2 alphabeta-d4`.
+
+---
+
+## Phase 1: the MLOps pipeline
+
+### The dataset problem, and how it is solved
+
+Reinforcement learning has no dataset to download: the agent learns by playing. To get
+versioned raw and processed data, and to make training faster, the project **generates
+its own expert dataset**. Two alpha-beta searchers (depth 3) play 10,000 games, and every
+move they choose is recorded. The network first learns to copy those moves (supervised
+pretraining), then improves beyond them by playing with Maskable PPO. This is the same
+recipe AlphaGo used: learn from expert games, then improve through play.
+
+| Requirement | Implementation |
+|---|---|
+| Raw dataset | `data/raw/games.jsonl`: 10,000 expert games, 583,601 moves |
+| Processed dataset | `data/processed/{train,val}.npz`: 392,148 positions, split **by game** (9,000 / 1,000) so no game leaks into validation |
+| Test set | `data/puzzles.jsonl`: 291 positions from validation games where a depth-4 search finds one clearly best move |
+| Versioning | DVC tracks all three datasets and the models; storage on AWS S3 (`dvc push` / `dvc pull`) |
+| Preprocessing ("tokenization") | Each board becomes a 106-number vector from the mover's side; each of the 201 possible atomic moves has a fixed id, like a vocabulary |
+| Training | Behaviour cloning on the expert moves, then Maskable PPO against a mix of bots and a frozen copy of itself |
+| Validation | Accuracy on held-out games, win/draw/loss against 4 opponents, puzzle accuracy |
+| Repeatable runs | `dvc.yaml` + `params.yaml`: `dvc repro` reruns only the stages whose code, data or settings changed |
+| Experiment tracking | MLflow logs parameters, per-epoch and per-rollout metrics, and artifacts for every stage |
+| Model registry | MLflow Model Registry: the ONNX policy is registered as `barahai-policy`, tagged with git commit, data hash and scores; a promotion rule assigns the `champion` or `challenger` alias |
+
+### Pipeline
+
+```
+generate ──► preprocess ──► pretrain ──► train ──► evaluate ──► register
+   │                                                   ▲
+   └──────► puzzles ───────────────────────────────────┘
+```
+
+| Stage | What it does | Output |
+|---|---|---|
+| `generate` | 10,000 alpha-beta games on 8 processes; 2-8 random opening moves and 3% random moves for variety (random moves are never used as labels) | `data/raw/games.jsonl` |
+| `preprocess` | Encodes every expert decision with 2+ legal moves; label = expert move, value = final result for the mover | `data/processed/` |
+| `puzzles` | Scores every move of 6,000 validation positions with a depth-4 search; keeps the decisive ones | `data/puzzles.jsonl` |
+| `pretrain` | Supervised learning: cross-entropy on the masked policy + MSE on the value head | `models/pretrained.pt` |
+| `train` | Maskable PPO from the pretrained weights, 3M steps, 16 environments in parallel processes; self-play snapshot refreshed every 250k steps | `models/policy.{zip,pt,onnx}` |
+| `evaluate` | 100 games vs each opponent (both colours, seeded random openings) with the ONNX model, plus the puzzle suite | `reports/eval.json` |
+| `register` | Logs the ONNX model to MLflow, registers a new version, tags it, applies the promotion rule | `reports/registry.json` |
+
+### Results (version 1, `champion`)
+
+| Opponent | Win | Draw | Loss | Score |
+|---|--:|--:|--:|--:|
+| Random | 99% | 1% | 0% | 0.995 |
+| Greedy (rule-based) | 76% | 24% | 0% | 0.880 |
+| Alpha-beta depth 2 | 27% | 68% | 5% | 0.610 |
+| Alpha-beta depth 3 (never trained against) | 18% | 71% | 11% | 0.535 |
+
+* Pretraining: 78.2% accuracy at predicting the expert's move on held-out games (41 s).
+* Puzzle accuracy: 63.9% of 291 decisive positions.
+* Training speed: 2,347 steps/s. Measured on 8 cores: 16 environments in subprocesses
+  2,370 steps/s, 8 in subprocesses 1,954, 8 in one process 1,698.
+
+Score = (wins + draws / 2) / games. Promotion gate: score against alpha-beta depth 2 plus
+puzzle accuracy must beat the current champion.
+
+### Run it
+
+```bash
+.venv\Scripts\python -m pip install -e .[game,dev,rl]
+```
+```bash
+.venv\Scripts\dvc pull
+```
+```bash
+.venv\Scripts\dvc repro
+```
+```bash
+.venv\Scripts\mlflow server --backend-store-uri sqlite:///mlflow.db --port 5000
+```
+
+`dvc pull` downloads the datasets and models from S3 (needs AWS access); without it,
+`dvc repro` regenerates everything from scratch in about 30 minutes on 8 cores. Change any
+value in `params.yaml` and `dvc repro` reruns only what depends on it. Compare runs with
+`dvc exp run -S train.init=scratch` and `dvc metrics diff`, or in the MLflow UI at
+http://127.0.0.1:5000. Play against the trained model with
+`.venv\Scripts\python scripts\arena.py onnx:models/policy.onnx alphabeta-d3`.
 
 ---
 
