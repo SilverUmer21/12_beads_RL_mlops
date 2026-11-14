@@ -1,0 +1,24 @@
+# Mirrors pyproject.toml extras: game + rl + dev.
+# CPU-only PyTorch wheels (same as CI). Remove this line for a CUDA build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# game
+pygame-ce>=2.5
+numpy>=1.26
+
+# rl / mlops
+pyyaml>=6
+gymnasium==1.4.0
+sb3-contrib==2.9.0
+torch==2.14.1
+mlflow==3.17.2
+dvc[s3]==3.67.1
+onnx==1.23.2
+onnxruntime==1.29.0
+
+# dev
+pytest>=8
+ruff>=0.17
+
+# the project itself (src/barahai), editable
+-e .
