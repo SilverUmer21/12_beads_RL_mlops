@@ -64,3 +64,6 @@ evaluate:
 register:
   model_name: barahai-policy
   gate_opponent: alphabeta-d2
+
+gate:                # CI: fail if puzzle accuracy drops (python -m barahai.rl.gate)
+  puzzle_tolerance: 0.01   # allowed drop; one puzzle is about 0.0034

@@ -147,3 +147,42 @@ def test_onnx_export_matches_torch(tmp_path):
         expected = ActorLogits(policy)(torch.as_tensor(encode(s))[None]).detach().numpy()[0]
         assert np.allclose(agent.logits(s), expected, atol=1e-4)
         assert s.is_legal(agent.act(s))
+
+
+def test_puzzle_gate_passes_and_fails(tmp_path):
+    """The CI gate exits 0 when accuracy holds and 1 when it drops below baseline - tolerance."""
+    pytest.importorskip("onnxruntime")
+    import json
+
+    from barahai.rl.gate import main, passes
+    from barahai.rl.policy import build_policy, export_onnx
+
+    assert passes(0.64, 0.6392, 0.0) and passes(0.63, 0.6392, 0.01) and not passes(0.62, 0.6392, 0.01)
+
+    model = tmp_path / "p.onnx"
+    export_onnx(build_policy({"net_arch": [32, 32]}), str(model))
+    # Every legal move counts as best, so any model solves all 10 puzzles.
+    rng = random.Random(5)
+    lines = []
+    for _ in range(10):
+        s, actions = GameState.new(), []
+        for _ in range(rng.randint(0, 8)):
+            a = rng.choice(s.legal_actions())
+            actions.append(a)
+            s = s.apply(a)
+            if s.is_terminal:
+                break
+        if not s.is_terminal:
+            lines.append(json.dumps({"actions": actions, "best": sorted(s.legal_actions())}))
+    puzzles = tmp_path / "puzzles.jsonl"
+    puzzles.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def run(baseline: float) -> int:
+        b = tmp_path / "eval.json"
+        b.write_text(json.dumps({"puzzle_accuracy": baseline}), encoding="utf-8")
+        return main(["--baseline", str(b), "--tolerance", "0.0", "--model", str(model), "--puzzles", str(puzzles)])
+
+    assert run(1.0) == 0
+    # Same puzzles, now with no correct answer: accuracy 0.0 drops below the baseline.
+    puzzles.write_text("\n".join(json.dumps({**json.loads(z), "best": []}) for z in lines) + "\n", encoding="utf-8")
+    assert run(0.5) == 1

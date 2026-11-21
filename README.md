@@ -105,6 +105,16 @@ generate ──► preprocess ──► pretrain ──► train ──► evalu
 Score = (wins + draws / 2) / games. Promotion gate: score against alpha-beta depth 2 plus
 puzzle accuracy must beat the current champion.
 
+### CI gate
+
+Besides lint and tests, CI runs a `puzzle-gate` job: it `dvc pull`s the champion
+(`models/policy.onnx`) and the puzzle suite, replays the puzzles and fails if accuracy
+drops more than `gate.puzzle_tolerance` below the baseline. On pull requests the baseline is
+the base branch's `reports/eval.json`, so a weaker model cannot be merged; on pushes it is
+the accuracy recorded in the same commit, so a code change that breaks the champion fails.
+Run it locally with `.venv\Scripts\python -m barahai.rl.gate`. CI needs the repository
+secrets `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (read access to the DVC bucket).
+
 ### Run it
 
 ```bash
