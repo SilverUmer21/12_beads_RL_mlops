@@ -3,15 +3,18 @@ stages:
   generate:
     cmd: python -m barahai.data.generate
     deps:
-    - path: src/barahai/agents
+    - path: src/barahai/agents/alphabeta.py
       hash: md5
-      md5: 0430056aab0c21605fb6ea998a56ed29.dir
-      size: 11849
-      nfiles: 4
+      md5: c8b8dceb8f7f0607ccaa7c6125fc471e
+      size: 7453
+    - path: src/barahai/agents/base.py
+      hash: md5
+      md5: d3e85fac232db4edafd27d6c5826dc25
+      size: 853
     - path: src/barahai/data/generate.py
       hash: md5
-      md5: 34a1866de74302c425ab6af760a40634
-      size: 3221
+      md5: 8c7645fa9289e460444933636168298b
+      size: 3315
     - path: src/barahai/engine
       hash: md5
       md5: 704432278349efdc25de8d916f45f227.dir

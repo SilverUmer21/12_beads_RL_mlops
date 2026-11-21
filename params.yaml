@@ -14,53 +14,70 @@ preprocess:          # processed dataset: encoded positions, split by game
   val_fraction: 0.1
 
 puzzles:             # puzzle suite: positions with one clearly best move
-  candidates: 6000
+  candidates: 4000
   count: 300
-  depth: 4
+  depth: 6           # deeper than the depth-5 training labels, so puzzles test more than imitation
   margin: 150        # best move must beat the second best by 1.5 beads
   workers: 8
 
-model:
-  net_arch: [256, 256]
+relabel:             # deeper teacher: score every legal move with a depth-5 search
+  depth: 5
+  train_fraction: 0.55   # share of training positions relabelled (bounds search time)
+  val_fraction: 1.0
+  temperature: 60        # softmax temperature over move scores, in centi-beads
+  value_scale: 400       # value = tanh(score / value_scale)
+  outcome_weight: 0.3    # blend of the final game result into the value target
+  workers: 8
 
-pretrain:            # behaviour cloning on the expert moves
-  epochs: 12
-  batch_size: 1024
-  learning_rate: 0.001
+model:
+  net_arch: [512, 512, 256]
+
+pretrain:            # supervised learning from the depth-5 teacher
+  epochs: 40
+  batch_size: 2048
+  learning_rate: 0.002
+  weight_decay: 0.0001
+  soft_weight: 0.7   # share of the soft-target loss (rest: the best move)
   value_coef: 0.5
+  augment: true      # random board symmetry per batch (8-fold augmentation)
   threads: 8
 
-train:               # Maskable PPO
+train:               # Maskable PPO, anchored to the pretrained policy
   init: pretrained   # pretrained | scratch
   total_timesteps: 3000000
   vec_env: subproc   # subproc (one process per env) | dummy (all in one process)
-  n_envs: 16         # measured: 16 subproc envs 2370 steps/s, 8 subproc 1954, 8 dummy 1698
+  n_envs: 8          # one process each; kept at 8 to bound memory
   threads: 4
-  n_steps: 256       # x16 envs = 4096 steps per update
+  n_steps: 512       # x8 envs = 4096 steps per update
   batch_size: 1024
-  n_epochs: 5
-  learning_rate: 0.0001
-  gamma: 0.99
+  n_epochs: 4
+  learning_rate: 0.00005
+  gamma: 0.995       # long games: a win 100 moves away is still worth 0.6
   gae_lambda: 0.95
-  ent_coef: 0.01
+  ent_coef: 0.0      # the KL anchor replaces the entropy bonus
   clip_range: 0.2
-  draw_reward: -0.1
-  capture_reward: 0.02
-  opening_plies: [0, 6]
-  snapshot_every: 250000
+  kl_start: 0.2      # KL(pi || pretrained) weight at the start ...
+  kl_end: 0.02       # ... decaying linearly to this
+  critic_warmup_updates: 10
+  draw_reward: 0.0   # zero-sum: +1 win, 0 draw, -1 loss
+  capture_reward: 0.0
+  opening_plies: [0, 10]
+  snapshot_every: 200000
+  snapshot_ring: 5
   opponents:
-    random: 0.1
-    greedy: 0.3
-    alphabeta-d1: 0.2
-    alphabeta-d2: 0.2
-    self: 0.2
+    greedy: 0.1
+    alphabeta-d2: 0.3
+    alphabeta-d3: 0.2
+    self: 0.4
 
 evaluate:
-  games: 100         # per opponent, half as each colour
-  opening_plies: [2, 6]
-  opponents: [random, greedy, alphabeta-d2, alphabeta-d3]
+  openings: 100      # fixed opening book; each opening is played twice, colours swapped
+  opening_plies: [4, 8]
+  search_simulations: 100
+  opponents: [random, greedy, alphabeta-d2, alphabeta-d3, alphabeta-d4]
   workers: 8
 
 register:
   model_name: barahai-policy
-  gate_opponent: alphabeta-d2
+  gate_opponent: alphabeta-d3
+  min_improvement: 0.02   # new version must beat the champion's gate score by this

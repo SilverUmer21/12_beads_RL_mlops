@@ -4,7 +4,8 @@ stages:
     deps:
       - src/barahai/data/generate.py
       - src/barahai/engine
-      - src/barahai/agents
+      - src/barahai/agents/alphabeta.py
+      - src/barahai/agents/base.py
     params:
       - seed
       - generate
@@ -29,6 +30,23 @@ stages:
       - reports/preprocess.json:
           cache: false
 
+  relabel:
+    cmd: python -m barahai.data.relabel
+    deps:
+      - src/barahai/data/relabel.py
+      - src/barahai/data/puzzles.py
+      - src/barahai/rl/features.py
+      - data/raw/games.jsonl
+    params:
+      - seed
+      - preprocess.val_fraction
+      - relabel
+    outs:
+      - data/labelled
+    metrics:
+      - reports/relabel.json:
+          cache: false
+
   puzzles:
     cmd: python -m barahai.data.puzzles
     deps:
@@ -49,13 +67,16 @@ stages:
     deps:
       - src/barahai/rl/pretrain.py
       - src/barahai/rl/policy.py
-      - data/processed
+      - src/barahai/rl/features.py
+      - data/labelled
     params:
       - seed
       - model
       - pretrain
+      - relabel
     outs:
       - models/pretrained.pt
+      - models/pretrained.onnx
     metrics:
       - reports/pretrain.json:
           cache: false
@@ -64,6 +85,7 @@ stages:
     cmd: python -m barahai.rl.train
     deps:
       - src/barahai/rl/train.py
+      - src/barahai/rl/anchored_ppo.py
       - src/barahai/rl/env.py
       - src/barahai/rl/policy.py
       - src/barahai/rl/features.py
@@ -84,6 +106,7 @@ stages:
     cmd: python -m barahai.rl.evaluate
     deps:
       - src/barahai/rl/evaluate.py
+      - src/barahai/search.py
       - models/policy.onnx
       - data/puzzles.jsonl
     params:
@@ -97,10 +120,15 @@ stages:
     cmd: python -m barahai.rl.register
     deps:
       - src/barahai/rl/register.py
+      - src/barahai/rl/evaluate.py
       - models/policy.onnx
+      - data/puzzles.jsonl
       - reports/eval.json
     params:
+      - seed
+      - evaluate
       - register
     outs:
+      - models/serve
       - reports/registry.json:
           cache: false

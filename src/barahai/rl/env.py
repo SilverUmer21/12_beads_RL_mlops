@@ -3,7 +3,8 @@
 * The colour is random each episode, and the board is always shown from the
   agent's side (see ``features``), so one network learns both colours.
 * The opponent is drawn from a weighted mix each episode (random, greedy,
-  alpha-beta, or a frozen copy of the agent itself for self-play).
+  alpha-beta, or ``self``: one of the last ``snapshot_ring`` frozen copies of
+  the agent, so it keeps beating its past selves rather than only the latest).
 * A turn can be several actions: after a jump that can continue, the same
   player acts again. The environment just hands control back to whoever is to
   move, so the agent sees each step of its own chain.
@@ -40,6 +41,7 @@ class BeadsEnv(gym.Env):
         capture_reward: float = 0.0,
         opening_plies: tuple[int, int] = (0, 0),
         model_params: dict | None = None,
+        snapshot_ring: int = 1,
         rules: Rules = STANDARD,
         render_mode: str | None = None,
     ) -> None:
@@ -51,14 +53,15 @@ class BeadsEnv(gym.Env):
         self.opening_plies = tuple(opening_plies)
         self.rules = rules
         self.render_mode = render_mode
-        self._snapshot = None
+        self._snapshots: list = []
+        self._ring = max(1, snapshot_ring)
+        self._model_params = model_params
         if SELF in self.opponents:
             import torch
 
             torch.set_num_threads(1)
             if model_params is None:
                 raise ValueError("self-play needs model_params")
-            self._snapshot = build_policy(model_params)
         self.me = 0
         self.opponent: Agent | None = None
         self.opponent_name = ""
@@ -68,16 +71,20 @@ class BeadsEnv(gym.Env):
     # --- self-play -------------------------------------------------------------
 
     def set_snapshot(self, state_dict: dict) -> None:
-        """Load new weights into the frozen self-play opponent."""
-        if self._snapshot is not None:
-            self._snapshot.load_state_dict(state_dict)
+        """Add a frozen copy of the agent to the self-play ring (oldest dropped)."""
+        if self._model_params is None:
+            return
+        policy = build_policy(self._model_params)
+        policy.load_state_dict(state_dict)
+        policy.eval()
+        self._snapshots = (self._snapshots + [policy])[-self._ring :]
 
     def _make_opponent(self, spec: str) -> Agent:
         seed = self._rng.randrange(1 << 30)
         if spec == SELF:
-            if self._snapshot is None:
+            if not self._snapshots:
                 raise ValueError("no self-play snapshot")
-            return TorchAgent(self._snapshot, sample=True, seed=seed, name=SELF)
+            return TorchAgent(self._rng.choice(self._snapshots), sample=True, seed=seed, name=SELF)
         return make_agent(spec, seed=seed)
 
     # --- gym API -----------------------------------------------------------------

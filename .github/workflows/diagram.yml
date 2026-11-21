@@ -1,0 +1,23 @@
+name: Diagram
+
+# Renders docs/architecture.py to docs/architecture.png (uploaded as an artifact).
+on:
+  push:
+    paths: [docs/architecture.py, .github/workflows/diagram.yml]
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
+      - run: pip install diagrams==0.25.1
+      - run: python docs/architecture.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: architecture
+          path: docs/architecture.png

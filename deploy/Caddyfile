@@ -1,0 +1,21 @@
+# Reverse proxy in front of the API. With SITE_ADDRESS set to a hostname
+# (e.g. 1-2-3-4.sslip.io), Caddy gets and renews an HTTPS certificate itself.
+# With the default ":80" it serves plain HTTP (local runs and CI).
+
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		reverse_proxy api:8000
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
