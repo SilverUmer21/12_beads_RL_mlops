@@ -1,9 +1,30 @@
 {
   "model_name": "barahai-policy",
-  "version": "1",
+  "version": "2",
   "alias": "champion",
-  "gate_score": 1.2492,
-  "previous_champion": null,
-  "previous_champion_score": null,
-  "run_id": "26722338c57c4807b734cd6676e2b564"
+  "gate_score": 1.3391,
+  "candidate_gate": {
+    "search_score": 0.5675,
+    "puzzle_accuracy": 0.7715736040609137,
+    "search_puzzle_accuracy": 0.8426395939086294
+  },
+  "previous_champion": 1,
+  "previous_champion_gate_score": 1.1468,
+  "previous_champion_gate": {
+    "search_score": 0.5275,
+    "puzzle_accuracy": 0.6192893401015228,
+    "search_puzzle_accuracy": 0.7360406091370558
+  },
+  "run_id": "67c870b3778a44178a2306cb401e4c7f",
+  "serving": {
+    "model_name": "barahai-policy",
+    "champion": {
+      "version": "2",
+      "file": "champion.onnx"
+    },
+    "shadow": {
+      "version": 1,
+      "file": "shadow.onnx"
+    }
+  }
 }

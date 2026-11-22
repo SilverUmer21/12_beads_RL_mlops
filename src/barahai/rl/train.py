@@ -70,10 +70,6 @@ class TrainingCallback(BaseCallback):
         state = {k: v.detach().cpu() for k, v in self.model.policy.state_dict().items()}
         self.training_env.env_method("set_snapshot", state)
 
-    def _on_training_start(self) -> None:
-        if self.self_play:
-            self._push_snapshot()
-
     def _on_step(self) -> bool:
         for info in self.locals["infos"]:
             if "outcome" in info:
@@ -132,6 +128,9 @@ def main() -> None:
     if t["init"] == "pretrained":
         model.policy.load_state_dict(torch.load("models/pretrained.pt", weights_only=True))
         model.set_anchor()
+    if SELF in t["opponents"]:
+        # The first self-play opponent must exist before learn() resets the environments.
+        vec.env_method("set_snapshot", {k: v.detach().cpu() for k, v in model.policy.state_dict().items()})
 
     mlflow = setup_mlflow()
     with mlflow.start_run(run_name=f"train-{t['init']}") as run:

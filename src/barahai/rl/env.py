@@ -81,9 +81,9 @@ class BeadsEnv(gym.Env):
 
     def _make_opponent(self, spec: str) -> Agent:
         seed = self._rng.randrange(1 << 30)
+        if spec == SELF and not self._snapshots:
+            spec = "alphabeta-d2"  # no snapshot yet: fall back to a fixed bot
         if spec == SELF:
-            if not self._snapshots:
-                raise ValueError("no self-play snapshot")
             return TorchAgent(self._rng.choice(self._snapshots), sample=True, seed=seed, name=SELF)
         return make_agent(spec, seed=seed)
 

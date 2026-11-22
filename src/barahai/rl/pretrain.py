@@ -9,8 +9,8 @@ Supervised learning on ``data/labelled`` (positions scored by a depth-5 search):
   board symmetry, so the network sees 8x more distinct positions
 * the epoch with the lowest validation loss is kept
 
-"Accuracy" is top-1 agreement with the depth-5 teacher's best move on held-out
-games. The weights become the starting point for PPO and are also exported so
+"Accuracy" is the share of held-out positions (from games never trained on)
+where the network's top move is one the depth-5 teacher scores as best. The weights become the starting point for PPO and are also exported so
 the pretrained network can be evaluated on its own.
 
     python -m barahai.rl.pretrain
@@ -77,7 +77,12 @@ def losses(policy, actor: ActorLogits, b: dict, soft_weight: float, value_coef: 
     pi_loss = soft_weight * soft + (1 - soft_weight) * hard
     values = policy.predict_values(b["obs"]).squeeze(-1)
     v_loss = F.mse_loss(values, b["value"])
-    correct = (logits.argmax(-1) == b["action"]).float().sum()
+    # A move counts as correct when the teacher scores it as (one of) the best: several moves
+    # often share the top score, so "equals the stored best move" would be a noisy measure.
+    pred = logits.argmax(-1)
+    target = b["policy"]
+    picked = target.gather(1, pred.unsqueeze(1)).squeeze(1)
+    correct = (picked >= target.max(-1).values - 1e-4).float().sum()
     return pi_loss + value_coef * v_loss, pi_loss, v_loss, correct
 
 

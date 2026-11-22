@@ -1,0 +1,8 @@
+{
+  "depth": 5,
+  "val_positions": 38828,
+  "val_mean_top_prob": 0.2959,
+  "train_positions": 194199,
+  "train_mean_top_prob": 0.2919,
+  "seconds": 18868.0
+}

@@ -44,7 +44,7 @@ pretrain:            # supervised learning from the depth-5 teacher
 
 train:               # Maskable PPO, anchored to the pretrained policy
   init: pretrained   # pretrained | scratch
-  total_timesteps: 3000000
+  total_timesteps: 1500000
   vec_env: subproc   # subproc (one process per env) | dummy (all in one process)
   n_envs: 8          # one process each; kept at 8 to bound memory
   threads: 4
@@ -62,7 +62,7 @@ train:               # Maskable PPO, anchored to the pretrained policy
   draw_reward: 0.0   # zero-sum: +1 win, 0 draw, -1 loss
   capture_reward: 0.0
   opening_plies: [0, 10]
-  snapshot_every: 200000
+  snapshot_every: 150000
   snapshot_ring: 5
   opponents:
     greedy: 0.1

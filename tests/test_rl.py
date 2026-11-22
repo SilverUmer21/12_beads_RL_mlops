@@ -226,3 +226,11 @@ def test_opening_book_and_elo():
     assert elo(0.5) == 0 and elo(0.75) > 0 > elo(0.25)
     s = summarise({0: [1.0, 0.5], 1: [0.5, 0.5], 2: [1.0, 1.0]})
     assert s["games"] == 6 and 0.5 < s["score"] < 1
+
+
+def test_self_play_without_snapshot_falls_back_to_a_bot():
+    from barahai.rl.env import BeadsEnv
+
+    env = BeadsEnv(opponents={"self": 1.0}, model_params={"net_arch": [16]})
+    _, info = env.reset(seed=0)
+    assert env.opponent.name.startswith("alphabeta")
