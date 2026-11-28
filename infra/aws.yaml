@@ -173,6 +173,35 @@ Resources:
                 Action: s3:GetObject
                 Resource: !Sub arn:aws:s3:::${DvcBucket}/*
 
+  CIReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Read-only access for CI (any branch or pull request) to pull models and puzzles with DVC
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:*
+      Policies:
+        - PolicyName: barahai-ci-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !Sub arn:aws:s3:::${DvcBucket}
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:aws:s3:::${DvcBucket}/*
+
 Outputs:
   SiteAddress:
     Description: Public HTTPS hostname (free, via sslip.io)
@@ -185,5 +214,7 @@ Outputs:
     Value: !GetAtt ImageRepository.RepositoryUri
   DeployRoleArn:
     Value: !GetAtt DeployRole.Arn
+  CIReadRoleArn:
+    Value: !GetAtt CIReadRole.Arn
   Region:
     Value: !Ref AWS::Region

@@ -81,3 +81,7 @@ register:
   model_name: barahai-policy
   gate_opponent: alphabeta-d3
   min_improvement: 0.02   # new version must beat the champion's gate score by this
+
+gate:                # CI check of the served champion (python -m barahai.rl.gate)
+  min_puzzle_accuracy: 0.70
+  max_drop: 0.01

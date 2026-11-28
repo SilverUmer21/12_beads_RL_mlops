@@ -36,6 +36,38 @@ jobs:
       - name: Check the DVC pipeline definition
         run: dvc dag
 
+  model-gate:
+    name: Model gate (puzzle suite)
+    needs: test
+    # Runs once the AWS read-only CI role is configured as a repository variable.
+    if: vars.AWS_CI_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: AWS credentials (OIDC, read-only)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install serving code and DVC
+        run: pip install -e ".[serve]" "dvc[s3]==3.67.1" pyyaml
+
+      - name: Pull the served models and the puzzle suite
+        run: dvc pull models/serve data/puzzles.jsonl
+
+      - name: Check the champion on the puzzle suite
+        run: python -m barahai.rl.gate
+
   container:
     name: Build and smoke-test the containers
     needs: test
