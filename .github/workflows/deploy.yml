@@ -1,0 +1,106 @@
+name: Deploy
+
+# Continuous deployment: after CI passes on main (or when started by hand),
+#   1. get short-lived AWS credentials through GitHub OIDC (no stored keys),
+#   2. pull the registered serving models from S3 with DVC,
+#   3. build the server image and push it to Amazon ECR,
+#   4. tell the EC2 instance (through SSM, no SSH port) to pull it and restart,
+#   5. check the public endpoint.
+# The "production" environment can require a manual approval before step 1.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ vars.SITE_ADDRESS }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Pull the serving models with DVC
+        run: |
+          pip install "dvc[s3]==3.67.1"
+          dvc pull models/serve
+          cat models/serve/manifest.json
+          echo "MODEL_VERSION=$(python -c "import json; print(json.load(open('models/serve/manifest.json'))['champion']['version'])")" >> "$GITHUB_ENV"
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build and push the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ vars.ECR_REPOSITORY_URI }}:${{ env.SHA }}
+            ${{ vars.ECR_REPOSITORY_URI }}:latest
+          build-args: |
+            MODEL_VERSION=${{ env.MODEL_VERSION }}
+            GIT_SHA=${{ env.SHA }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Roll out on EC2 through SSM
+        run: |
+          IMAGE="${{ vars.ECR_REPOSITORY_URI }}:${SHA}"
+          ROLLOUT="cd /opt/barahai/repo && git fetch --quiet origin && git checkout --quiet --force ${SHA} && bash deploy/rollout.sh ${IMAGE} ${{ vars.SITE_ADDRESS }} ${AWS_REGION}"
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --document-name AWS-RunShellScript \
+            --comment "barahai deploy ${SHA::7}" \
+            --parameters "{\"commands\": [\"${ROLLOUT}\"], \"executionTimeout\": [\"900\"]}" \
+            --query Command.CommandId --output text)
+          echo "SSM command: $CMD_ID"
+          STATUS=Pending
+          for i in $(seq 1 90); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+              --instance-id "${{ vars.EC2_INSTANCE_ID }}" --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in Pending|InProgress|Delayed) sleep 10 ;; *) break ;; esac
+          done
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "${{ vars.EC2_INSTANCE_ID }}" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text
+          echo "Status: $STATUS"
+          test "$STATUS" = "Success"
+
+      - name: Check the live endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://${{ vars.SITE_ADDRESS }}/api/health"; then exit 0; fi
+            sleep 10
+          done
+          exit 1

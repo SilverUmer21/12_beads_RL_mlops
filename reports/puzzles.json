@@ -1,7 +1,7 @@
 {
-  "candidates": 6000,
-  "decisive": 291,
-  "puzzles": 291,
+  "candidates": 4000,
+  "decisive": 197,
+  "puzzles": 197,
   "avg_legal": 6.53,
   "single_answer_share": 1.0
 }

@@ -8,9 +8,10 @@ in code: no image or audio files.
 ![Barah Goti mid-game: a chain capture in progress](docs/screenshot.png)
 
 It also has a reinforcement learning agent with a full MLOps pipeline: versioned datasets
-(DVC), a repeatable training pipeline, experiment tracking and a model registry (MLflow).
-See [Phase 1: the MLOps pipeline](#phase-1-the-mlops-pipeline) below and the
-[project plan](docs/PROJECT_PLAN.md) for the research, decisions and roadmap.
+(DVC), a repeatable training pipeline, experiment tracking and a model registry (MLflow)
+in [Phase 1](#phase-1-the-mlops-pipeline), and a containerised inference server deployed
+on AWS by GitHub Actions in [Phase 2](#phase-2-serving-containers-and-cicd). The
+[project plan](docs/PROJECT_PLAN.md) has the research, decisions and roadmap.
 
 This folder replaces the old C++/SFML version in [`SilverUmer21/twelve_beads`](https://github.com/SilverUmer21/twelve_beads)
 (see [what was wrong with it](#autopsy-of-the-legacy-c-version)).
@@ -21,11 +22,16 @@ barahai/
 │   ├── engine/     rules engine: pure Python, zero dependencies
 │   ├── agents/     Random, Greedy (rule-based), Alpha-beta search
 │   ├── game/       pygame-ce client: art, sound, app, search worker
-│   ├── data/       pipeline stages: generate, preprocess, puzzles
-│   └── rl/         features, Gymnasium env, policy, pretrain, train, evaluate, register
+│   ├── data/       pipeline stages: generate, preprocess, relabel, puzzles
+│   ├── rl/         features, Gymnasium env, policy, pretrain, PPO, evaluate, register, gate
+│   ├── inference.py, search.py   torch-free model player and network-guided search
+│   └── serve/      FastAPI inference server and the web page
 ├── params.yaml     every pipeline setting
-├── dvc.yaml        the pipeline: 7 stages, reproducible with `dvc repro`
-├── tests/          49 tests incl. differential tests against a naive engine
+├── dvc.yaml        the pipeline: 8 stages, reproducible with `dvc repro`
+├── Dockerfile, compose.yaml, deploy/   container image and the service stack
+├── infra/aws.yaml  the AWS infrastructure (CloudFormation)
+├── .github/workflows/   CI, Deploy, Diagram
+├── tests/          62 tests incl. differential tests against a naive engine
 └── scripts/arena.py   bot-vs-bot tournaments and an engine speed check
 ```
 
@@ -126,6 +132,117 @@ value in `params.yaml` and `dvc repro` reruns only what depends on it. Compare r
 `dvc exp run -S train.init=scratch` and `dvc metrics diff`, or in the MLflow UI at
 http://127.0.0.1:5000. Play against the trained model with
 `.venv\Scripts\python scripts\arena.py onnx:models/policy.onnx alphabeta-d3`.
+
+---
+
+## Phase 2: serving, containers and CI/CD
+
+### Architecture
+
+![BarahAI cloud architecture](docs/architecture.png)
+
+The diagram is code ([`docs/architecture.py`](docs/architecture.py)); the *Diagram* workflow
+re-renders it whenever it changes.
+
+* **Training (laptop):** the DVC pipeline produces the datasets and models, logs every run
+  to MLflow and registers each new model. `dvc push` stores data and models in S3.
+* **CI (GitHub Actions, every push):** lint, 62 tests, the model gate (the served champion
+  must still solve the puzzle suite), then the Docker image is built and the whole Compose
+  stack is started and smoke-tested through the proxy.
+* **CD (after CI passes on `main`, with a manual approval):** GitHub signs in to AWS with
+  OIDC (no stored keys), pulls the registered serving models from S3 with DVC, builds the
+  image, pushes it to ECR, and tells the EC2 instance to roll it out through SSM (no SSH
+  port). It finishes by calling the live health endpoint.
+* **Serving (one EC2 instance, Docker Compose):** Caddy (HTTPS, automatic certificates),
+  the FastAPI server, Prometheus and Grafana.
+
+### Inference server
+
+FastAPI + ONNX Runtime ([`src/barahai/serve/app.py`](src/barahai/serve/app.py)), no PyTorch in
+the image. The API is stateless: each request carries the moves played so far and the
+server replays them with the rules engine, so it can restart or scale without losing games.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /` | Web page: play against the model, with an evaluation bar |
+| `POST /api/move` | The model's move: network only (`policy`) or network-guided search (`search`) |
+| `POST /api/analyse` | Who is winning (evaluation bar) and the model's top moves |
+| `POST /api/state` | Board, side to move, legal moves, result |
+| `POST /api/games` | Record a finished game (validated by replaying it) |
+| `GET /api/stats` | Results per model version |
+| `GET /api/health`, `GET /api/model` | Health check and loaded model versions |
+| `GET /metrics` | Prometheus metrics |
+| `GET /docs` | Interactive API documentation |
+
+**Shadow deployment.** The image carries two models: the champion answers every request,
+and the shadow model (the previous champion, or a registered challenger) scores the same
+position silently. Whether they agree and how long each took are exported as metrics, so a
+new model is compared with the old one on real games before anyone relies on it.
+
+### Containers
+
+* [`Dockerfile`](Dockerfile): two stages (install into a virtual environment, then copy
+  only that and the model into a clean `python:3.12-slim` image), non-root user, health
+  check, model version and git commit as image labels.
+* [`compose.yaml`](compose.yaml): `api` and `caddy` always; `prometheus` and `grafana` in the
+  `monitoring` profile. Health checks, start order on health, memory limits, named volumes.
+* Grafana is provisioned from files ([`deploy/grafana`](deploy/grafana)): move latency per
+  model, moves per minute, shadow agreement rate, game results, HTTP traffic.
+
+### Model version 2
+
+Research on the Phase 1 training found the depth-3 teacher capped the model's strength
+and that PPO could make it forget its pretraining. Version 2 changes:
+
+1. **Deeper teacher:** 233,000 positions re-scored by a depth-5 search; the network learns
+   the score of every move (soft targets), not only the move that was played.
+2. **8-fold symmetry augmentation:** every position is also shown rotated and mirrored.
+3. **Anchored PPO:** a decaying KL penalty keeps PPO close to the pretrained policy, the
+   first updates train only the value head, the reward is zero-sum (+1/0/-1), and the
+   opponents are harder (alpha-beta depth 2-3 and a ring of past versions of itself).
+4. **Search at play time:** the network guides a 100-simulation tree search when it plays.
+5. **Fairer evaluation:** a fixed opening book played with colours swapped, Elo with 95%
+   intervals, and a head-to-head promotion gate against the current champion.
+
+| | Version 1 | **Version 2** |
+|---|--:|--:|
+| Picks the depth-5 teacher's best move (unseen games) | 46.3% | **86.0%** |
+| Puzzle accuracy (197 depth-6 puzzles), network only | 61.9% | **77.2%** |
+| Puzzle accuracy, with search | 73.6% | **84.3%** |
+| Score vs alpha-beta depth 3, with search | 0.528 | **0.568** |
+
+Version 2 with search against each bot (200 games each, colours swapped):
+
+| Opponent | Score | Elo difference (95% interval) |
+|---|--:|--:|
+| Greedy | 0.772 | +212 (+193, +233) |
+| Alpha-beta depth 2 | 0.598 | +69 (+51, +86) |
+| Alpha-beta depth 3 | 0.568 | +47 (+31, +64) |
+| Alpha-beta depth 4 (never trained against) | 0.568 | +47 (+30, +64) |
+
+The registry promoted version 2 to `champion` automatically; version 1 now runs as the
+shadow model.
+
+### Run the service locally
+
+```bash
+.venv\Scripts\dvc pull models/serve
+```
+```bash
+docker compose --profile monitoring up -d --build
+```
+
+Then open http://localhost (game), http://localhost/docs (API) and http://localhost/grafana.
+
+### Deploy to AWS
+
+1. Create the stack from [`infra/aws.yaml`](infra/aws.yaml) in CloudFormation. It creates
+   the EC2 instance, an Elastic IP with a free `sslip.io` HTTPS hostname, the ECR
+   repository and the GitHub OIDC roles.
+2. Copy its outputs into the repository variables `AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`,
+   `AWS_CI_ROLE_ARN`, `ECR_REPOSITORY_URI`, `EC2_INSTANCE_ID` and `SITE_ADDRESS`.
+3. Merge to `main`: CI runs, then the Deploy workflow waits for approval in the
+   `production` environment and rolls out.
 
 ---
 

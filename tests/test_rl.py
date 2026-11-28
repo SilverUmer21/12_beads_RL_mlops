@@ -147,3 +147,90 @@ def test_onnx_export_matches_torch(tmp_path):
         expected = ActorLogits(policy)(torch.as_tensor(encode(s))[None]).detach().numpy()[0]
         assert np.allclose(agent.logits(s), expected, atol=1e-4)
         assert s.is_legal(agent.act(s))
+
+
+def test_symmetry_tables_preserve_legality_and_labels():
+    from barahai.engine.board import SYM_SQ, transform_bb
+    from barahai.rl.features import symmetry_tables
+
+    obs_src, act_src, act_map = symmetry_tables()
+    for k in range(8):
+        assert sorted(act_map[k]) == list(range(N_ACTIONS))  # a permutation of the actions
+        assert act_map[k][STOP] == STOP
+    # Transforming a player-0 position must transform its observation and its legal moves alike.
+    for s in random_states(5, seed=7):
+        if s.turn != 0 or s.mid_chain:
+            continue
+        for k in range(8):
+            t = GameState.from_position(transform_bb(s.bb[0], k), transform_bb(s.bb[1], k), turn=0)
+            base = GameState.from_position(*s.bb, turn=0)
+            assert np.array_equal(encode(base)[obs_src[k]][:100], encode(t)[:100])
+            assert np.array_equal(canonical_mask(base)[act_src[k]], canonical_mask(t))
+        assert SYM_SQ[0][3] == 3
+
+
+def _tiny_onnx(tmp_path):
+    from barahai.rl.policy import build_policy, export_onnx
+
+    path = tmp_path / "pv.onnx"
+    export_onnx(build_policy({"net_arch": [16]}), str(path))
+    return str(path)
+
+
+def test_onnx_exports_logits_and_value(tmp_path):
+    from barahai.rl.policy import OnnxAgent
+
+    agent = OnnxAgent(_tiny_onnx(tmp_path))
+    logits, value = agent.evaluate(GameState.new())
+    assert logits.shape == (N_ACTIONS,) and -1.0 <= value <= 1.0
+
+
+def test_search_plays_legal_moves_and_finds_a_capture(tmp_path):
+    from barahai.engine import parse_square
+    from barahai.rl.policy import OnnxAgent
+    from barahai.search import SearchAgent
+
+    agent = SearchAgent(OnnxAgent(_tiny_onnx(tmp_path)), simulations=30)
+    for s in random_states(1, seed=8):
+        assert s.is_legal(agent.act(s))
+
+    def bits(*names):
+        return sum(1 << parse_square(n) for n in names)
+
+    # Player 0 can capture the last enemy bead and win at once.
+    s = GameState.from_position(bits("c3", "a1"), bits("c4"), turn=0, rules=__import__("barahai.engine").engine.Rules(
+        forced_capture=False))
+    a = SearchAgent(OnnxAgent(_tiny_onnx(tmp_path)), simulations=60).act(s)
+    assert s.apply(a).is_terminal and s.apply(a).result.winner == 0
+
+
+def test_anchored_ppo_learns_a_few_steps():
+    from barahai.rl.anchored_ppo import AnchoredMaskablePPO
+    from barahai.rl.env import BeadsEnv
+    from barahai.rl.policy import policy_kwargs
+
+    env = BeadsEnv(opponents={"random": 1.0})
+    model = AnchoredMaskablePPO("MlpPolicy", env, n_steps=64, batch_size=32, n_epochs=1,
+                                policy_kwargs=policy_kwargs({"net_arch": [16]}), kl_start=0.2, kl_end=0.0,
+                                critic_warmup_updates=1, device="cpu", seed=0)
+    model.set_anchor()
+    model.learn(192)
+    assert model.kl_coef_history[0] == 0.0 and max(model.kl_coef_history) > 0  # warm-up, then anchored
+
+
+def test_opening_book_and_elo():
+    from barahai.rl.evaluate import elo, opening_book, summarise
+
+    book = opening_book(20, (4, 8), seed=1)
+    assert len(book) == 20 and len({tuple(b) for b in book}) == 20
+    assert elo(0.5) == 0 and elo(0.75) > 0 > elo(0.25)
+    s = summarise({0: [1.0, 0.5], 1: [0.5, 0.5], 2: [1.0, 1.0]})
+    assert s["games"] == 6 and 0.5 < s["score"] < 1
+
+
+def test_self_play_without_snapshot_falls_back_to_a_bot():
+    from barahai.rl.env import BeadsEnv
+
+    env = BeadsEnv(opponents={"self": 1.0}, model_params={"net_arch": [16]})
+    _, info = env.reset(seed=0)
+    assert env.opponent.name.startswith("alphabeta")

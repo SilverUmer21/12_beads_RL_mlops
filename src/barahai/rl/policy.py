@@ -21,6 +21,7 @@ from torch import nn
 
 from ..agents.base import Agent
 from ..engine import N_ACTIONS, GameState
+from ..inference import OnnxAgent, choose  # noqa: F401  (re-exported for older imports)
 from .features import OBS_SIZE, canonical_mask, encode, from_canonical
 
 OBS_SPACE = spaces.Box(0.0, 1.0, shape=(OBS_SIZE,), dtype=np.float32)
@@ -49,16 +50,6 @@ class ActorLogits(nn.Module):
         return self.head(self.mlp(self.features(obs)))
 
 
-def choose(logits: np.ndarray, mask: np.ndarray, rng: random.Random | None = None, temperature: float = 1.0) -> int:
-    """Best legal action, or a sample from the masked softmax when ``rng`` is given."""
-    masked = np.where(mask, logits, -np.inf)
-    if rng is None:
-        return int(np.argmax(masked))
-    z = masked / temperature
-    p = np.exp(z - z.max())
-    p /= p.sum()
-    return int(rng.choices(range(len(p)), weights=p)[0])
-
 
 class TorchAgent(Agent):
     """Plays with an in-memory policy (used for self-play opponents)."""
@@ -76,36 +67,31 @@ class TorchAgent(Agent):
         return from_canonical(choose(logits, canonical_mask(state), self.rng), state.turn)
 
 
-class OnnxAgent(Agent):
-    """Plays with an exported ONNX model. Needs only numpy and onnxruntime."""
+class PolicyValue(nn.Module):
+    """observation batch (N, 106) -> (action logits (N, 201), value (N, 1)). Exported to ONNX."""
 
-    def __init__(self, path: str, threads: int = 1, name: str = "neural") -> None:
-        import onnxruntime as ort
+    def __init__(self, policy: MaskableActorCriticPolicy) -> None:
+        super().__init__()
+        self.actor = ActorLogits(policy)
+        self.vf_features = policy.vf_features_extractor
+        self.vf_mlp = policy.mlp_extractor.value_net
+        self.vf_head = policy.value_net
 
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = threads
-        opts.inter_op_num_threads = 1
-        self.session = ort.InferenceSession(path, opts, providers=["CPUExecutionProvider"])
-        self.input = self.session.get_inputs()[0].name
-        self.name = name
-
-    def logits(self, state: GameState) -> np.ndarray:
-        return self.session.run(None, {self.input: encode(state)[None, :]})[0][0]
-
-    def act(self, state: GameState) -> int:
-        return from_canonical(choose(self.logits(state), canonical_mask(state)), state.turn)
+    def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.actor(obs), self.vf_head(self.vf_mlp(self.vf_features(obs)))
 
 
 def export_onnx(policy: MaskableActorCriticPolicy, path: str) -> None:
-    net = ActorLogits(policy).eval()
+    """Export logits and value. Outputs: ``logits`` (N, 201) and ``value`` (N, 1)."""
+    net = PolicyValue(policy).eval()
     dummy = torch.zeros(1, OBS_SIZE, dtype=torch.float32)
     torch.onnx.export(
         net,
         (dummy,),
         path,
         input_names=["obs"],
-        output_names=["logits"],
-        dynamic_axes={"obs": {0: "batch"}, "logits": {0: "batch"}},
+        output_names=["logits", "value"],
+        dynamic_axes={"obs": {0: "batch"}, "logits": {0: "batch"}, "value": {0: "batch"}},
         opset_version=17,
         dynamo=False,
     )

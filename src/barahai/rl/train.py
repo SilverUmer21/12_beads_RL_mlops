@@ -1,7 +1,9 @@
-"""Stage 5: improve the policy with Maskable PPO.
+"""Stage: improve the policy with Maskable PPO, anchored to the pretrained policy.
 
 * Starts from the pretrained weights (``train.init: pretrained``) or from
   scratch (``scratch``), so the two can be compared in MLflow.
+* A decaying KL penalty keeps the policy close to the pretrained one early on,
+  and the first updates train only the value head (see ``anchored_ppo``).
 * Opponents come from a weighted mix; ``self`` is a frozen copy of the agent
   that is refreshed every ``snapshot_every`` steps (self-play).
 * Environments run in parallel worker processes (``vec_env: subproc``). Alpha-beta
@@ -22,11 +24,11 @@ from functools import partial
 from pathlib import Path
 
 import torch
-from sb3_contrib import MaskablePPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMonitor
 
 from ..mlops import file_md5, flatten, git_commit, load_params, read_json, seed_everything, setup_mlflow, write_json
+from .anchored_ppo import AnchoredMaskablePPO
 from .env import SELF, BeadsEnv
 from .policy import export_onnx, policy_kwargs
 
@@ -41,6 +43,7 @@ def make_env(t: dict, model_params: dict) -> BeadsEnv:
         capture_reward=t["capture_reward"],
         opening_plies=tuple(t["opening_plies"]),
         model_params=model_params,
+        snapshot_ring=t.get("snapshot_ring", 1),
     )
 
 
@@ -67,10 +70,6 @@ class TrainingCallback(BaseCallback):
         state = {k: v.detach().cpu() for k, v in self.model.policy.state_dict().items()}
         self.training_env.env_method("set_snapshot", state)
 
-    def _on_training_start(self) -> None:
-        if self.self_play:
-            self._push_snapshot()
-
     def _on_step(self) -> bool:
         for info in self.locals["infos"]:
             if "outcome" in info:
@@ -91,7 +90,8 @@ class TrainingCallback(BaseCallback):
                 metrics[f"rollout_draw_{key}"] = sum(o == "draw" for o in q) / n
                 metrics[f"rollout_loss_{key}"] = sum(o == "loss" for o in q) / n
         for k in ("rollout/ep_rew_mean", "rollout/ep_len_mean", "train/entropy_loss", "train/approx_kl",
-                  "train/value_loss", "train/policy_gradient_loss", "train/clip_fraction"):
+                  "train/value_loss", "train/policy_gradient_loss", "train/clip_fraction",
+                  "train/anchor_kl", "train/anchor_kl_coef", "train/explained_variance"):
             v = self.logger.name_to_value.get(k)
             if v is not None:
                 metrics[k.replace("/", "_")] = float(v)
@@ -106,7 +106,7 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     vec = make_vec_env(t, params["model"], params["seed"])
-    model = MaskablePPO(
+    model = AnchoredMaskablePPO(
         "MlpPolicy",
         vec,
         learning_rate=t["learning_rate"],
@@ -121,9 +121,16 @@ def main() -> None:
         seed=params["seed"],
         device="cpu",
         verbose=0,
+        kl_start=t["kl_start"],
+        kl_end=t["kl_end"],
+        critic_warmup_updates=t["critic_warmup_updates"],
     )
     if t["init"] == "pretrained":
         model.policy.load_state_dict(torch.load("models/pretrained.pt", weights_only=True))
+        model.set_anchor()
+    if SELF in t["opponents"]:
+        # The first self-play opponent must exist before learn() resets the environments.
+        vec.env_method("set_snapshot", {k: v.detach().cpu() for k, v in model.policy.state_dict().items()})
 
     mlflow = setup_mlflow()
     with mlflow.start_run(run_name=f"train-{t['init']}") as run:

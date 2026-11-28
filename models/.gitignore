@@ -2,3 +2,5 @@
 /policy.zip
 /policy.pt
 /policy.onnx
+/pretrained.onnx
+/serve

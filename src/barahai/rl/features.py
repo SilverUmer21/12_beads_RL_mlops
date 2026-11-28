@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..engine import N_ACTIONS, STOP, GameState
-from ..engine.board import N_SQUARES, ROT180, SYM_DIR, SYM_SQ, transform_bb
+from ..engine.board import N_SQUARES, N_SYMMETRIES, ROT180, SYM_DIR, SYM_SQ, transform_bb
 
 N_PLANES = 4
 N_SCALARS = 6
@@ -84,6 +84,27 @@ def encode(s: GameState) -> np.ndarray:
     obs[104] = opp.bit_count() / START_BEADS
     obs[105] = 1.0 if chain >= 0 else 0.0
     return obs
+
+
+def symmetry_tables() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Index tables for the 8 board symmetries, for data augmentation.
+
+    The rules don't depend on orientation, so rotating or mirroring a position
+    (and its moves) gives another valid training example. Returns gather
+    indices ``obs_src[k]`` and ``act_src[k]`` (new[j] = old[src[j]]) and the
+    forward map ``act_map[k]`` (old action -> new action) for labels.
+    """
+    obs_src = np.tile(np.arange(OBS_SIZE), (N_SYMMETRIES, 1))
+    act_map = np.tile(np.arange(N_ACTIONS), (N_SYMMETRIES, 1))
+    for k in range(N_SYMMETRIES):
+        for plane in range(N_PLANES):
+            for sq in range(N_SQUARES):
+                obs_src[k, plane * N_SQUARES + SYM_SQ[k][sq]] = plane * N_SQUARES + sq
+        for a in range(STOP):
+            d, sq = divmod(a, N_SQUARES)
+            act_map[k, a] = SYM_DIR[k][d] * N_SQUARES + SYM_SQ[k][sq]
+    act_src = np.argsort(act_map, axis=1)
+    return obs_src, act_src, act_map
 
 
 def canonical_mask(s: GameState) -> np.ndarray:

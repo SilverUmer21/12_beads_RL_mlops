@@ -17,3 +17,6 @@ mlartifacts/
 *.pem
 *.key
 .aws/
+
+# champion model downloaded from the registry during the register stage
+models/champion/

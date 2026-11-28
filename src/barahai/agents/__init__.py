@@ -17,9 +17,15 @@ def make_agent(spec: str, seed: int | None = 0) -> Agent:
     if spec.startswith("alphabeta-t"):
         return AlphaBetaAgent(depth=64, time_limit=float(spec.removeprefix("alphabeta-t")), seed=seed)
     if spec.startswith("onnx:"):  # a trained policy, e.g. onnx:models/policy.onnx (needs the rl extra)
-        from ..rl.policy import OnnxAgent
+        from ..inference import OnnxAgent
 
         return OnnxAgent(spec.removeprefix("onnx:"), name="neural")
+    if spec.startswith("mcts"):  # network-guided search, e.g. mcts100:models/policy.onnx
+        from ..inference import OnnxAgent
+        from ..search import SearchAgent
+
+        sims, path = spec.removeprefix("mcts").split(":", 1)
+        return SearchAgent(OnnxAgent(path), simulations=int(sims), name=f"mcts{sims}")
     raise ValueError(f"unknown agent spec {spec!r}")
 
 

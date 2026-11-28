@@ -3,14 +3,20 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Lint and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -19,10 +25,88 @@ jobs:
         run: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install the package
-        run: pip install -e ".[dev,rl]"
+        run: pip install -e ".[dev,rl,serve]"
 
       - name: Lint
         run: ruff check .
 
       - name: Test
         run: pytest
+
+      - name: Check the DVC pipeline definition
+        run: dvc dag
+
+  model-gate:
+    name: Model gate (puzzle suite)
+    needs: test
+    # Runs once the AWS read-only CI role is configured as a repository variable.
+    if: vars.AWS_CI_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: AWS credentials (OIDC, read-only)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install serving code and DVC
+        run: pip install -e ".[serve]" "dvc[s3]==3.67.1" pyyaml
+
+      - name: Pull the served models and the puzzle suite
+        run: dvc pull models/serve data/puzzles.jsonl
+
+      - name: Check the champion on the puzzle suite
+        run: python -m barahai.rl.gate
+
+  container:
+    name: Build and smoke-test the containers
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Make a small test model bundle
+        run: |
+          pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[rl]"
+          python scripts/make_test_bundle.py models/serve
+
+      - name: Validate the Compose file
+        run: docker compose --profile monitoring config --quiet
+
+      - name: Build and start api + caddy
+        run: docker compose up -d --build --wait
+
+      - name: Smoke test through the proxy
+        run: |
+          curl -fsS http://localhost/api/health
+          curl -fsS -X POST http://localhost/api/move -H 'Content-Type: application/json' \
+            -d '{"actions": [], "mode": "search", "simulations": 50}'
+          curl -fsS http://localhost/ | grep -q "Barah Goti"
+          curl -fsS http://localhost/metrics | grep -q barahai_moves_total
+
+      - name: Image size
+        run: docker image ls barahai-api
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
